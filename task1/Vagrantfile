@@ -1,0 +1,55 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+BOX_IMAGE = "hashicorp/bionic64"
+BALANCER_IP_ADDRESS = "192.168.100.10"
+BALANCER_PORT = 8081
+WORKER_COUNT = 2
+
+Vagrant.configure("2") do |config|
+
+  config.vm.define "balancer" do |config|
+  config.vm.box = BOX_IMAGE
+  config.vm.hostname = "balancer"
+
+  config.vm.synced_folder "./loadBalancer", "/var/www/html/", type: "virtualbox"	
+
+  config.vm.network "forwarded_port", guest: 80, host: BALANCER_PORT
+  config.vm.network :private_network, ip: BALANCER_IP_ADDRESS
+  
+  config.vm.provision "shell", inline: <<-SHELL
+  apt-get update      
+  apt-get install -y nginx      
+  echo "#{config.vm.hostname}" > /var/www/html/index.nginx-debian.html      
+  service nginx start    
+  SHELL
+  # Provision
+  config.vm.provision :shell, path: "./provision/configure_nginx.sh"
+  end
+ 
+ (1..WORKER_COUNT).each do |worker_count|
+    config.vm.define "agent#{worker_count}" do |subconfig|
+      subconfig.vm.box = BOX_IMAGE
+      subconfig.vm.hostname = "agent#{worker_count}"
+
+	  config.vm.synced_folder "./agent-#{worker_count}-backend", "/var/www/html/agent-#{worker_count}-backend", type: "virtualbox"	
+	  
+	   subconfig.vm.network "forwarded_port", guest: 80, host: (BALANCER_PORT + worker_count)
+      subconfig.vm.network :private_network, ip: "192.168.100.#{10 + worker_count}"
+      subconfig.vm.provision "shell", inline: <<-SHELL
+        apt-get update
+        apt-get install -y nginx
+        echo "#{subconfig.vm.hostname}" > /var/www/html/index.nginx-debian.html
+        service nginx start
+      SHELL
+    end
+  end
+  
+ 
+
+  
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "512"  # 1GB Memory
+    vb.cpus = 2
+  end
+end
